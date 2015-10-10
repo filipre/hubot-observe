@@ -76,8 +76,13 @@ provideCommands = (robot) ->
 
   robot.respond /observe(:help)?$/i, (msg) ->
 
-    msg.reply "List of commands:"
-    # TODO
+    help = "List of commands:"
+    help += "\n#{robot.name} observe[:help] - Show commands"
+    help += "\n#{robot.name} observe:add <url> [interval=<interval>] - Add a job that observes a json with an optional interval (default is minutely)"
+    help += "\n#{robot.name} observe:remove <url> - Remove a job by url"
+    help += "\n#{robot.name} observe:list [all] - List all jobs in the room (or of all rooms)"
+
+    msg.reply help
 
 
   robot.respond /observe:add ([^\s\\]+)( interval=([^\"]+))?/i, (msg) ->
@@ -133,16 +138,16 @@ provideCommands = (robot) ->
 
     if all
       reply = "All jobs from all rooms:"
-      for roomName, roomObj of robot.brain.data.observe
+      for room, roomObj of robot.brain.data.observe
         for url, observeObj of roomObj
-          reply += formatJob roomName, url, observeObj.interval, observeObj.broken
+          reply += formatJob room, url, observeObj.interval, observeObj.broken
       msg.reply reply
       return
 
     reply = "All jobs from ##{room}:"
     robot.brain.data.observe[room] ?= {}
     for url, observeObj of robot.brain.data.observe[room]
-      reply += formatJob roomName, url, observeObj.interval, observeObj.broken
+      reply += formatJob room, url, observeObj.interval, observeObj.broken
     msg.reply reply
 
 
