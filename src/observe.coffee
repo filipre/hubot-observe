@@ -1,9 +1,6 @@
 # Description
 #   A hubot script that checks a json resource and notifies the channel if something changed
 #
-# Configuration:
-#   LIST_OF_ENV_VARS_TO_SET
-#
 # Commands:
 #   hubot observe[:help] - Show commands
 #   hubot observe:add <url> [interval=<interval>] - Add a job that observes a json with an optional interval (default is minutely)
@@ -18,20 +15,62 @@
 
 
 CronJob = require('cron').CronJob
+async = require 'async'
 # humanToCron = require('human-to-cron')
 
+# Running "Cronjobs" by the npm cron package
 jobs = {}
 
-# model
-# robot.brain.data.observe.<room>.<url> = <interval>
 
-createJob = (url, interval, room, robot) ->
+checkUrl = (url, room, robot) ->
+
+  performRequest = (callback, result) ->
+    robot.http(url).get() (err, res, body) ->
+      # HTTP error
+      if err
+        return callback err, null
+
+      # JSON Parsing Error (maybe not a json)
+      try
+        result = JSON.parse body
+      catch err
+        return callback err, null
+
+      # no 'text' property
+      if not result.hasOwnProperty 'text'
+        err = "JSON does not have a 'text' property at root"
+        return callback err, null
+
+      return callback null, result.text
+
+  notifyUser = (err, text) ->
+    # after 3 tries mark url as broken and notify user the first time
+    if err
+      if not robot.brain.data.observe[room][url].broken
+        robot.messageRoom room, "#{url} is not working: #{err}"
+      robot.brain.data.observe[room][url].broken = true
+      return
+
+    # URL is working (again)
+    robot.brain.data.observe[room][url].broken = false
+    if robot.brain.data.observe[room][url].text isnt text
+      robot.brain.data.observe[room][url].text = text
+      robot.messageRoom room, "#{text}"
+
+  async.retry {
+    times: 3
+    interval: 5000
+  }, performRequest, notifyUser
+
+
+createJob = (url, room, robot) ->
   return new CronJob(
-    cronTime: interval # humanToCron interval
+    cronTime: robot.brain.data.observe[room][url].interval # humanToCron interval
     onTick: ->
-      robot.messageRoom room, "I have a secret: #{url}, #{interval}, #{room}"
+      checkUrl url, room, robot
     start: true
   )
+
 
 provideCommands = (robot) ->
 
@@ -53,11 +92,14 @@ provideCommands = (robot) ->
       msg.reply "URL already exists in ##{room}"
       return
 
-    jobs[room] ?= {}
-    jobs[room][url] = createJob url, interval, room, robot
-
     # source of truth
-    robot.brain.data.observe[room][url] = interval
+    robot.brain.data.observe[room][url] =
+      interval: interval
+      text: ""
+      broken: false
+
+    jobs[room] ?= {}
+    jobs[room][url] = createJob url, room, robot
 
     msg.reply "#{url} in ##{room} added"
 
@@ -82,21 +124,25 @@ provideCommands = (robot) ->
 
   robot.respond /observe:list( all)?/i, (msg) ->
 
+    formatJob = (room, url, interval, broken) ->
+      brokenStr = if observeObj.broken then "(broken)" else ""
+      return "\n##{room}: #{url} [#{interval}] #{brokenStr}"
+
     all = if msg.match[1] then true else false
     room = msg.message.room
 
     if all
       reply = "All jobs from all rooms:"
       for roomName, roomObj of robot.brain.data.observe
-        for url, interval of roomObj
-          reply += "\n##{roomName}: #{url} [#{interval}]"
+        for url, observeObj of roomObj
+          reply += formatJob roomName, url, observeObj.interval, observeObj.broken
       msg.reply reply
       return
 
     reply = "All jobs from ##{room}:"
     robot.brain.data.observe[room] ?= {}
-    for url, interval of robot.brain.data.observe[room]
-      reply += "\n##{room}: #{url} [#{interval}]"
+    for url, observeObj of robot.brain.data.observe[room]
+      reply += formatJob roomName, url, observeObj.interval, observeObj.broken
     msg.reply reply
 
 
@@ -107,9 +153,9 @@ module.exports = (robot) ->
 
     # load existing jobs from the brain
     for roomName, roomObj of robot.brain.data.observe
-      for url, interval of roomObj
+      for url, observeObj of roomObj
         jobs[roomName] ?= {}
-        jobs[roomName][url] = createJob url, interval, roomName, robot
+        jobs[roomName][url] = createJob url, roomName, robot
 
     # only provide methods if brain is loaded
     provideCommands robot
