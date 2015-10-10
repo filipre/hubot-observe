@@ -1,7 +1,7 @@
 {
   "name": "hubot-observe",
   "description": "A hubot script that checks a json resource and notifies the channel if something changed",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "author": "René Filip <renefilip@mail.com>",
   "license": "MIT",
   "keywords": "hubot, hubot-scripts, observe, json, statistics",
